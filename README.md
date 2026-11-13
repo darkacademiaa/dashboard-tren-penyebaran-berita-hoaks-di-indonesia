@@ -2,8 +2,8 @@
 
 Dashboard interaktif untuk mengeksplorasi dan membandingkan **berita hoaks** dengan **berita valid** berbahasa Indonesia, dibangun menggunakan Python dan Streamlit.
 
-🔗 **Demo langsung:** [LINK_APP_STREAMLIT]
-📄 **Mini Paper:** [LINK_PDF]
+🔗 **Demo langsung:** [https://dashboard-tren-penyebaran-berita-hoaks-di-indonesia.streamlit.app/](https://dashboard-tren-penyebaran-berita-hoaks-di-indonesia.streamlit.app/)
+📄 **Mini Paper:** *(segera hadir)*
 
 ---
 
