@@ -23,9 +23,23 @@ import streamlit as st
 # Konfigurasi
 # ----------------------------------------------------------------------------
 _BASE = Path(__file__).parent
-# Mendukung CSV biasa maupun versi terkompresi (.csv.gz, lebih kecil untuk GitHub)
-_CANDIDATES = [_BASE / "Data_Clean_-_data_clean.csv.gz", _BASE / "Data_Clean_-_data_clean.csv"]
-DEFAULT_CSV = next((p for p in _CANDIDATES if p.exists()), _CANDIDATES[0])
+
+
+def find_dataset() -> Path | None:
+    """Cari file data: nama persis dulu, lalu file .csv / .csv.gz apa pun di folder app (termasuk subfolder)."""
+    preferred = ["Data_Clean_-_data_clean.csv.gz", "Data_Clean_-_data_clean.csv"]
+    for name in preferred:
+        if (_BASE / name).exists():
+            return _BASE / name
+    found = sorted(
+        [p for pattern in ("*.csv.gz", "*.csv") for p in _BASE.rglob(pattern)],
+        key=lambda p: p.stat().st_size,
+        reverse=True,
+    )
+    return found[0] if found else None
+
+
+DEFAULT_CSV = find_dataset()
 LABEL_MAP = {1: "Hoaks", 0: "Berita Valid"}
 COLORS = {"Hoaks": "#E4572E", "Berita Valid": "#2E86AB"}
 NO_DATE_TEXT = "tidak tersedia"
@@ -431,10 +445,15 @@ def main():
     try:
         if uploaded is not None:
             full = load_data(uploaded.getvalue())
-        elif DEFAULT_CSV.exists():
+        elif DEFAULT_CSV is not None:
             full = load_data(str(DEFAULT_CSV))
         else:
-            st.info(f"Letakkan `{DEFAULT_CSV.name}` di folder yang sama dengan app.py, atau upload lewat sidebar.")
+            isi = sorted(p.name for p in _BASE.iterdir())
+            st.info(
+                "File dataset (.csv atau .csv.gz) tidak ditemukan di folder aplikasi. "
+                "Upload ke repo GitHub atau pakai uploader di sidebar."
+            )
+            st.caption("File yang terbaca di folder aplikasi: " + ", ".join(f"`{n}`" for n in isi))
             st.stop()
     except Exception as e:  # tampilkan pesan ramah, bukan traceback
         st.error(f"Gagal memuat data: {e}")
