@@ -86,7 +86,7 @@ Pastikan file `Data_Clean_-_data_clean.csv` berada di folder yang sama dengan `a
 | Data Collector | Naufal |
 | Data Cleaner | Nabila, Tiara |
 | Dashboard Developer | Nadya |
-| Insight & Data Analyst | Salsabila Ramadhina Danisti, Muhammad Fadhil |
+| Insight & Data Analyst | Caca, Fadhil |
 | Penulis Mini Paper | Fatih, Rayyan, Ezzar, Cattleya |
 | Website Developer | Wili |
 | Dokumentasi & Bukti Pendukung | Tegar |
