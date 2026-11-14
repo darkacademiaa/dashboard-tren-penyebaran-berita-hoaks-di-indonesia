@@ -2,8 +2,8 @@
 
 Dashboard interaktif untuk mengeksplorasi dan membandingkan **berita hoaks** dengan **berita valid** berbahasa Indonesia, dibangun menggunakan Python dan Streamlit.
 
-🔗 **Demo langsung:** [LINK_APP_STREAMLIT]
-📄 **Mini Paper:** [LINK_PDF]
+🔗 **Demo langsung:** [https://dashboard-tren-penyebaran-berita-hoaks-di-indonesia.streamlit.app/](https://dashboard-tren-penyebaran-berita-hoaks-di-indonesia.streamlit.app/)
+📄 **Mini Paper:** *(segera hadir)*
 
 ---
 
@@ -15,11 +15,13 @@ Penyebaran hoaks di media sosial dan platform digital terus menjadi masalah di I
 
 | Keterangan | Nilai |
 |---|---|
-| Total artikel | 23.747 |
-| Hoaks (label `1`) | 11.608 |
+| Total artikel | 23.586 |
+| Hoaks (label `1`) | 11.447 |
 | Berita valid (label `0`) | 12.139 |
 | Sumber hoaks | turnbackhoax.id |
 | Sumber berita valid | antaranews.com, kompas.com, detik.com |
+
+161 artikel TurnBackHoax berlabel [BENAR]/[SEBAGIAN BENAR] dikeluarkan karena bukan hoaks. Tanggal hoaks diambil ulang dari halaman TurnBackHoax (98,6% berhasil); tren dianalisis untuk Februari 2024 – April 2026.
 
 **Kolom data:** `url`, `judul`, `narasi`, `label`, `clean_text`, `tanggal`, `berita_bersih`
 

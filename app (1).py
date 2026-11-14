@@ -2,7 +2,7 @@
 Dashboard Analisis Hoaks vs Berita Valid (TurnBackHoax + media nasional)
 =======================================================================
 Jalankan:  streamlit run app.py
-Dataset :  Data_Clean_-_data_clean.csv  (taruh di folder yang sama dengan app.py,
+Dataset :  Data_Final_Hoaks.csv.gz  (nama bebas selama berakhiran .csv / .csv.gz / .gz; taruh di folder yang sama dengan app.py,
            atau upload lewat sidebar)
 
 Kolom yang diharapkan:
@@ -26,23 +26,31 @@ _BASE = Path(__file__).parent
 
 
 def find_dataset() -> Path | None:
-    """Cari file data: nama persis dulu, lalu file .csv / .csv.gz apa pun di folder app (termasuk subfolder)."""
-    preferred = ["Data_Clean_-_data_clean.csv.gz", "Data_Clean_-_data_clean.csv"]
-    for name in preferred:
-        if (_BASE / name).exists():
-            return _BASE / name
-    found = sorted(
-        [p for pattern in ("*.csv.gz", "*.csv") for p in _BASE.rglob(pattern)],
-        key=lambda p: p.stat().st_size,
-        reverse=True,
-    )
-    return found[0] if found else None
+    """Cari dataset FINAL di folder app (termasuk subfolder).
+
+    - Menerima .csv, .csv.gz, atau .gz (mis. 'Data_Final_Hoaks_csv.gz').
+    - File yang namanya mengandung 'final' diprioritaskan.
+    - File dataset lama ('Data_Clean...') SENGAJA diabaikan supaya dashboard
+      tidak diam-diam memakai data lama yang angkanya berbeda dari paper.
+    """
+    files = [
+        p for pattern in ("*.csv.gz", "*.csv", "*.gz")
+        for p in _BASE.rglob(pattern)
+        if "data_clean" not in p.name.lower().replace("-", "_").replace(" ", "_")
+    ]
+    files = list(dict.fromkeys(files))  # buang duplikat, urutan tetap
+    files.sort(key=lambda p: ("final" not in p.name.lower(), -p.stat().st_size))
+    return files[0] if files else None
 
 
 DEFAULT_CSV = find_dataset()
 LABEL_MAP = {1: "Hoaks", 0: "Berita Valid"}
 COLORS = {"Hoaks": "#E4572E", "Berita Valid": "#2E86AB"}
 NO_DATE_TEXT = "tidak tersedia"
+# Periode tren hoaks (sesuai tanggal terbit TurnBackHoax yang berhasil diambil ulang)
+TREN_MULAI, TREN_SELESAI = pd.Timestamp("2024-02-01"), pd.Timestamp("2026-04-30")
+BULAN_ID = {1: "Januari", 2: "Februari", 3: "Maret", 4: "April", 5: "Mei", 6: "Juni", 7: "Juli",
+            8: "Agustus", 9: "September", 10: "Oktober", 11: "November", 12: "Desember"}
 SAMPLE_LIMIT = 6000  # batas dokumen per kelompok untuk word cloud / n-gram (supaya cepat)
 
 # Stopword tambahan (data sudah dibersihkan, ini hanya pelengkap)
@@ -66,7 +74,8 @@ EXTRA_STOPWORDS = {
 def load_data(source: bytes | str) -> pd.DataFrame:
     """Baca CSV (path atau bytes upload) lalu tambahkan kolom turunan."""
     if isinstance(source, (bytes, bytearray)):
-        df = pd.read_csv(io.BytesIO(source))
+        comp = "gzip" if bytes(source[:2]) == b"\x1f\x8b" else None  # deteksi file .gz hasil upload
+        df = pd.read_csv(io.BytesIO(source), compression=comp)
     else:
         df = pd.read_csv(source)
 
@@ -97,15 +106,37 @@ def load_data(source: bytes | str) -> pd.DataFrame:
     # Jumlah kata teks bersih
     df["jumlah_kata"] = df["berita_bersih"].str.split().str.len().fillna(0).astype(int)
 
-    # Kategori dari tag judul TurnBackHoax, mis. "[SALAH] ...", "[HOAKS] ..."
-    tag = df["judul"].str.extract(r"^\s*\[([^\]]+)\]")[0].str.strip().str.upper()
+    # Jenis hoaks dari label pemeriksa fakta di judul TurnBackHoax (sama dengan mini paper)
     df["kategori"] = "Berita Valid"
     is_hoax = df["label"] == 1
-    df.loc[is_hoax, "kategori"] = tag[is_hoax].fillna("TANPA TAG")
-    top_tags = df.loc[is_hoax, "kategori"].value_counts().head(7).index
-    df.loc[is_hoax & ~df["kategori"].isin(top_tags), "kategori"] = "LAINNYA"
+    df.loc[is_hoax, "kategori"] = df.loc[is_hoax, "judul"].map(jenis_hoaks)
+    # Artikel berlabel [BENAR] / [SEBAGIAN BENAR] bukan hoaks, jadi dikeluarkan
+    df = df[~df["kategori"].isin(["Benar", "Sebagian Benar"])]
 
     return df.reset_index(drop=True)
+
+
+def jenis_hoaks(judul: str) -> str:
+    j = str(judul).lower()
+    if "sebagian benar" in j:
+        return "Sebagian Benar"
+    if re.match(r"^\s*\[?\s*benar\s*[\]:,]", j):
+        return "Benar"
+    if "penipuan" in j:
+        return "Penipuan"
+    if "menyesatkan" in j:
+        return "Menyesatkan"
+    if "keliru" in j:
+        return "Keliru"
+    if "klarifikasi" in j:
+        return "Klarifikasi"
+    if re.search(r"satir|parodi", j):
+        return "Satire/Parodi"
+    if re.search(r"belum terbukti|belum ada bukti", j):
+        return "Belum Terbukti"
+    if re.search(r"hoaks|hoax|salah|tidak benar|manipulasi|disinformasi", j):
+        return "Salah/Hoaks"
+    return "Lainnya"
 
 
 # ----------------------------------------------------------------------------
@@ -203,7 +234,7 @@ def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
         rng = st.sidebar.date_input("Rentang tanggal", value=(dmin, dmax), min_value=dmin, max_value=dmax)
         include_nodate = st.sidebar.checkbox(
             "Sertakan data tanpa tanggal", value=True,
-            help="Mayoritas data (terutama hoaks) tidak punya tanggal. Matikan untuk hanya data bertanggal.",
+            help="Sekitar 70% berita valid dan 1,7% hoaks tidak punya tanggal. Matikan untuk hanya data bertanggal.",
         )
         if isinstance(rng, (tuple, list)) and len(rng) == 2:
             start, end = pd.Timestamp(rng[0]), pd.Timestamp(rng[1])
@@ -263,14 +294,24 @@ def tab_ringkasan(df: pd.DataFrame):
                      labels={"jumlah": "Jumlah artikel", "sumber": "", "label_name": "Label"})
         st.plotly_chart(fig)
     with c4:
-        st.subheader("Kategori / tag klaim")
-        k = df["kategori"].value_counts().reset_index()
-        k.columns = ["kategori", "jumlah"]
-        fig = px.bar(k.sort_values("jumlah"), x="jumlah", y="kategori", orientation="h",
-                     color_discrete_sequence=["#6C757D"],
-                     labels={"jumlah": "Jumlah artikel", "kategori": ""})
-        st.plotly_chart(fig)
-    st.caption("Kategori hoaks diambil dari tag di awal judul TurnBackHoax, mis. [SALAH], [HOAKS], [PENIPUAN].")
+        st.subheader("Jenis hoaks")
+        hx = df[df["label"] == 1]
+        if hx.empty:
+            st.info("Tidak ada artikel hoaks pada filter saat ini.")
+        else:
+            k = hx["kategori"].value_counts().reset_index()
+            k.columns = ["kategori", "jumlah"]
+            k["persen"] = (k["jumlah"] / k["jumlah"].sum() * 100).round(1)
+            k["label_teks"] = k["persen"].astype(str) + "%"
+            fig = px.bar(k.sort_values("jumlah"), x="jumlah", y="kategori", orientation="h",
+                         text="label_teks", color_discrete_sequence=[COLORS["Hoaks"]],
+                         labels={"jumlah": "Jumlah artikel hoaks", "kategori": ""})
+            fig.update_traces(textposition="outside", cliponaxis=False)
+            st.plotly_chart(fig)
+    st.caption("Jenis hoaks dikelompokkan dari kata/label pemeriksa fakta di judul TurnBackHoax "
+               "(salah/hoaks, penipuan, keliru, dll.), sama dengan aturan di Mini Paper. "
+               "Persentase dihitung dari artikel hoaks pada filter saat ini. "
+               "'Lainnya' = judul tanpa kata kunci jenis hoaks.")
 
 
 def tab_tren(df: pd.DataFrame):
@@ -289,21 +330,26 @@ def tab_tren(df: pd.DataFrame):
         st.warning("Tidak ada artikel bertanggal pada filter saat ini, sehingga grafik tren tidak dapat dibuat.")
         return
 
-    if cov.get("Hoaks", 100) < 5 and "Hoaks" in cov.index:
+    if "Hoaks" in cov.index and cov["Hoaks"] < 50:
         st.warning(
-            "⚠️ **Tanggal artikel hoaks hampir seluruhnya tidak tersedia** pada dataset ini. "
-            "Grafik di bawah hanya mencerminkan artikel bertanggal (umumnya berita valid) dan "
-            "**tidak boleh dibaca sebagai tren hoaks vs valid**. Untuk tren hoaks, tanggal perlu "
-            "diambil ulang (scraping) dari halaman TurnBackHoax."
+            f"⚠️ Hanya {cov['Hoaks']}% artikel hoaks pada filter ini yang punya tanggal, "
+            "jadi tren hoaks bisa tidak lengkap."
         )
 
+    only_valid = (df["label"] == 0).all()
     c1, c2 = st.columns([1, 1])
-    gran = c1.radio("Granularitas", ["Harian", "Mingguan", "Bulanan"], horizontal=True, index=0)
-    ignore_outlier = c2.checkbox("Abaikan tanggal pencilan (sebelum 2026)", value=True)
-    if ignore_outlier:
-        dated = dated[dated["tanggal_dt"] >= "2026-01-01"]
+    gran = c1.radio("Granularitas", ["Harian", "Mingguan", "Bulanan"], horizontal=True, index=2)
+    show_valid = c2.checkbox(
+        "Tampilkan berita valid", value=only_valid,
+        help="Hanya sekitar 30% berita valid yang punya tanggal (kebanyakan Maret–April 2026), "
+             "jadi garisnya tidak bisa dibandingkan langsung dengan hoaks.",
+    )
+    dated = dated[dated["tanggal_dt"].between(TREN_MULAI, TREN_SELESAI)]
+    if not show_valid:
+        dated = dated[dated["label"] == 1]
+    st.caption("Periode: Februari 2024 – April 2026. Tanggal hoaks = tanggal terbit artikel di TurnBackHoax.")
     if dated.empty:
-        st.info("Tidak ada data setelah filter pencilan.")
+        st.info("Tidak ada artikel bertanggal pada periode dan filter ini.")
         return
 
     if gran == "Harian":
@@ -319,6 +365,12 @@ def tab_tren(df: pd.DataFrame):
                   labels={"periode": "Tanggal", "jumlah": "Jumlah artikel", "label_name": "Label"})
     fig.update_layout(hovermode="x unified")
     st.plotly_chart(fig)
+    hx_m = dated[dated["label"] == 1].groupby(dated["tanggal_dt"].dt.to_period("M")).size()
+    if not hx_m.empty:
+        puncak = hx_m.idxmax()
+        st.caption(
+            f"Puncak artikel hoaks (per bulan): {BULAN_ID[puncak.month]} {puncak.year} dengan {int(hx_m.max()):,} artikel."
+        )
     st.caption(f"Dasar data: {len(dated):,} dari {total:,} artikel (yang memiliki tanggal valid).")
 
 
@@ -441,17 +493,20 @@ def main():
     st.title("🕵️ Dashboard Analisis Hoaks vs Berita Valid")
     st.caption("Sumber data: TurnBackHoax (hoaks) dan media nasional (berita valid) · Data teks berbahasa Indonesia")
 
-    uploaded = st.sidebar.file_uploader("Upload CSV lain (opsional)", type="csv")
+    uploaded = st.sidebar.file_uploader("Upload dataset lain (opsional)", type=["csv", "gz"])
     try:
         if uploaded is not None:
             full = load_data(uploaded.getvalue())
+            st.sidebar.caption(f"Dataset: `{uploaded.name}` (upload)")
         elif DEFAULT_CSV is not None:
             full = load_data(str(DEFAULT_CSV))
+            st.sidebar.caption(f"Dataset: `{DEFAULT_CSV.name}`")
         else:
             isi = sorted(p.name for p in _BASE.iterdir())
             st.info(
-                "File dataset (.csv atau .csv.gz) tidak ditemukan di folder aplikasi. "
-                "Upload ke repo GitHub atau pakai uploader di sidebar."
+                "File dataset final (.csv / .csv.gz / .gz) tidak ditemukan di folder aplikasi "
+                "(file 'Data_Clean...' yang lama sengaja diabaikan). "
+                "Upload dataset final ke repo GitHub atau pakai uploader di sidebar."
             )
             st.caption("File yang terbaca di folder aplikasi: " + ", ".join(f"`{n}`" for n in isi))
             st.stop()
@@ -468,7 +523,8 @@ def main():
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Total artikel", f"{len(df):,}")
     hoax_n = int((df["label"] == 1).sum())
-    k2.metric("Hoaks", f"{hoax_n:,}", f"{hoax_n / len(df) * 100:.1f}%", delta_color="off")
+    k2.metric("Hoaks", f"{hoax_n:,}")
+    k2.caption(f"{hoax_n / len(df) * 100:.1f}% dari total")
     k3.metric("Berita valid", f"{len(df) - hoax_n:,}")
     k4.metric("Rata-rata kata / artikel", f"{df['jumlah_kata'].mean():.0f}")
 
